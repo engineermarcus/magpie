@@ -1,0 +1,5 @@
+httpx>=0.28.1
+playwright>=1.59.0
+python-dotenv>=1.2.2
+flask
+flask-cors

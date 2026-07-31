@@ -1,0 +1,97 @@
+#!/bin/bash
+SCRIPT_DIR="$HOME/moviebox-api"
+DISTRO="pw24"
+
+SUDO=""
+if [ "$(id -u)" != "0" ]; then
+    SUDO="sudo"
+fi
+
+usage() {
+    echo ""
+    echo "  magpie install                    Setup proot + Ubuntu + Playwright"
+    echo "  magpie migrate                    Enter the Ubuntu container"
+    echo "  magpie start                      Install Python deps inside Ubuntu"
+    echo "  magpie --download Title [flags]   Download a movie or series"
+    echo "  magpie serve                      Start the web interface on port 5000"
+    echo ""
+    echo "  magpie remove                     Uninstall magpie and clean everything"
+    echo ""
+    echo "  Flags: --pickN --sN --epN -a --info --url --json --upload"
+    echo ""
+}
+
+case "$1" in
+
+    install)
+        if [ -n "$PREFIX" ] && [ -d "/data/data/com.termux" ]; then
+            command -v git &>/dev/null || pkg install -y git
+            if [ ! -d "$HOME/moviebox-api" ]; then
+                echo "[->] Cloning moviebox-api..."
+                git clone https://github.com/engineermarcus/moviebox-api.git "$HOME/moviebox-api"
+            fi
+            bash "$HOME/moviebox-api/setup.sh"
+            cp "$HOME/moviebox-api/magpie" "$PREFIX/bin/magpie"
+            chmod +x "$PREFIX/bin/magpie"
+        else
+            echo "[->] Installing dependencies..."
+            $SUDO apt update -y
+            $SUDO apt install -y python3 python3-pip git zip
+            if [ ! -d "$HOME/moviebox-api" ]; then
+                echo "[->] Cloning moviebox-api..."
+                git clone https://github.com/engineermarcus/moviebox-api.git "$HOME/moviebox-api"
+            fi
+            cd "$HOME/moviebox-api"
+            bash install.sh
+            $SUDO cp "$HOME/moviebox-api/magpie" /usr/local/bin/magpie
+            $SUDO chmod +x /usr/local/bin/magpie
+        fi
+        echo "[ok] magpie installed as global command"
+        ;;
+
+    remove)
+        echo "[->] Removing magpie..."
+        rm -rf "$HOME/moviebox-api"
+        sed -i '/moviebox-api/d' ~/.bashrc 2>/dev/null || true
+        sed -i '/moviebox-api/d' ~/.bash_profile 2>/dev/null || true
+        if [ -n "$PREFIX" ] && [ -d "/data/data/com.termux" ]; then
+            proot-distro remove pw24 2>/dev/null || true
+            rm -f "$PREFIX/bin/magpie"
+        else
+            $SUDO rm -f /usr/local/bin/magpie
+        fi
+        echo "[ok] magpie removed"
+        echo "[!] Run: hash -r to clear shell cache"
+        ;;
+
+    migrate)
+        if [ -n "$PREFIX" ] && [ -d "/data/data/com.termux" ]; then
+            proot-distro login "$DISTRO" --bind "$HOME:/root" --bind /sdcard:/sdcard
+        else
+            echo "[!] migrate is only needed on Termux. On Linux you are already in the right environment."
+        fi
+        ;;
+
+    start)
+        bash "$SCRIPT_DIR/install.sh"
+        ;;
+
+    serve)
+        python3 "$SCRIPT_DIR/downloader.py" --server
+        ;;
+
+    --download)
+        if [ -z "$2" ]; then
+            echo "[x] Usage: magpie --download Title [flags]"
+            exit 1
+        fi
+        shift
+        python3 "$SCRIPT_DIR/downloader.py" "$@" 2>&1 || {
+            echo "[!] Something went wrong. Run: magpie start"
+        }
+        ;;
+
+    *)
+        usage
+        ;;
+esac
