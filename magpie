@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_DIR="$HOME/moviebox-api"
+SCRIPT_DIR="$HOME/magpie"
 DISTRO="pw24"
 
 SUDO=""
@@ -26,9 +26,9 @@ case "$1" in
     install)
         if [ -n "$PREFIX" ] && [ -d "/data/data/com.termux" ]; then
             command -v git &>/dev/null || pkg install -y git
-            if [ ! -d "$HOME/moviebox-api" ]; then
-                echo "[->] Cloning moviebox-api..."
-                git clone https://github.com/engineermarcus/moviebox-api.git "$HOME/moviebox-api"
+            if [ ! -d "$HOME/magpie" ]; then
+                echo "[->] Cloning magpie"
+                git clone https://github.com/engineermarcus/magpie.git "$HOME/magpie"
             fi
             bash "$HOME/moviebox-api/setup.sh"
             cp "$HOME/moviebox-api/magpie" "$PREFIX/bin/magpie"
@@ -37,23 +37,23 @@ case "$1" in
             echo "[->] Installing dependencies..."
             $SUDO apt update -y
             $SUDO apt install -y python3 python3-pip git zip
-            if [ ! -d "$HOME/moviebox-api" ]; then
-                echo "[->] Cloning moviebox-api..."
-                git clone https://github.com/engineermarcus/moviebox-api.git "$HOME/moviebox-api"
+            if [ ! -d "$HOME/magpie" ]; then
+                echo "[->] Cloning magpie"
+                git clone https://github.com/engineermarcus/magpie.git "$HOME/moviebox-api"
             fi
-            cd "$HOME/moviebox-api"
+            cd "$HOME/magpie"
             bash install.sh
-            $SUDO cp "$HOME/moviebox-api/magpie" /usr/local/bin/magpie
+            $SUDO cp "$HOME/magpie/magpie" /usr/local/bin/magpie
             $SUDO chmod +x /usr/local/bin/magpie
         fi
-        echo "[ok] magpie installed as global command"
+        echo "[*] You are all set user"
         ;;
 
     remove)
         echo "[->] Removing magpie..."
-        rm -rf "$HOME/moviebox-api"
-        sed -i '/moviebox-api/d' ~/.bashrc 2>/dev/null || true
-        sed -i '/moviebox-api/d' ~/.bash_profile 2>/dev/null || true
+        rm -rf "$HOME/magpie"
+        sed -i '/magpie/d' ~/.bashrc 2>/dev/null || true
+        sed -i '/magpie/d' ~/.bash_profile 2>/dev/null || true
         if [ -n "$PREFIX" ] && [ -d "/data/data/com.termux" ]; then
             proot-distro remove pw24 2>/dev/null || true
             rm -f "$PREFIX/bin/magpie"

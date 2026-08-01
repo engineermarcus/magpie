@@ -5,5 +5,5 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 $SUDO apt update && $SUDO apt install zip -y
-pip install -r "$HOME/moviebox-api/requirements.txt" --break-system-packages
+pip install -r "$HOME/magpie/requirements.txt" --break-system-packages
 python3 -m playwright install --with-deps chromium
