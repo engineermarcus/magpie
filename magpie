@@ -30,8 +30,8 @@ case "$1" in
                 echo "[->] Cloning magpie"
                 git clone https://github.com/engineermarcus/magpie.git "$HOME/magpie"
             fi
-            bash "$HOME/moviebox-api/setup.sh"
-            cp "$HOME/moviebox-api/magpie" "$PREFIX/bin/magpie"
+            bash "$HOME/magpie/setup.sh"
+            cp "$HOME/magpie/magpie" "$PREFIX/bin/magpie"
             chmod +x "$PREFIX/bin/magpie"
         else
             echo "[->] Installing dependencies..."
@@ -39,7 +39,7 @@ case "$1" in
             $SUDO apt install -y python3 python3-pip git zip
             if [ ! -d "$HOME/magpie" ]; then
                 echo "[->] Cloning magpie"
-                git clone https://github.com/engineermarcus/magpie.git "$HOME/moviebox-api"
+                git clone https://github.com/engineermarcus/magpie.git "$HOME/magpie"
             fi
             cd "$HOME/magpie"
             bash install.sh
