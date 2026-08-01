@@ -779,12 +779,7 @@ def serve_any(rel):
         return jsonify({"error": "not found"}), 404
 
 def run_async(coro):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
+    return asyncio.run(coro)
 
 @app.route("/api/search", methods=["GET"])
 def api_search():
@@ -839,7 +834,15 @@ def api_download():
             loop.close()
         threading.Thread(target=bg, daemon=True).start()
         return jsonify({"status": "downloading+uploading", "resolution": best["resolutions"]})
-    return jsonify({"url": best["url"], "referer": referer, "resolution": best["resolutions"], "size_mb": int(best["size"]) // 1048576, "title": title, "season": season, "episode": episode})
+    safe   = re.sub(r"[^\w-]", "", title.replace(" ", "-"))
+    output = os.path.join(DOWNLOADS_DIR, f"{safe}-s{season:02d}e{episode:02d}.mp4")
+    def bg():
+        _url = best["url"]
+        if _url and not _url.startswith(("http://", "https://")):
+            _url = "https:" + _url if _url.startswith("//") else "https://" + _url
+        asyncio.run(download(_url, output, referer=referer))
+    threading.Thread(target=bg, daemon=True).start()
+    return jsonify({"status": "downloading", "resolution": best["resolutions"], "size_mb": int(best["size"]) // 1048576, "output": output})
 
 @app.route("/api/info", methods=["GET"])
 def api_info():
