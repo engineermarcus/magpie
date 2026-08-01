@@ -22,7 +22,7 @@ export const TMDB_ENDPOINTS = {
 
 export async function searchMagpie(q) {
   const res = await axios.get(`/api/search?q=${encodeURIComponent(q)}`);
-  return res.data;
+  return res.data.filter(f => !f.name.endsWith(".aria2"));
 }
 
 export async function searchTMDB(query) {
@@ -32,22 +32,22 @@ export async function searchTMDB(query) {
 
 export async function fetchFiles() {
   const res = await axios.get("/api/files");
-  return res.data;
+  return res.data.filter(f => !f.name.endsWith(".aria2"));
 }
 
 export async function startDownloadApi(payload) {
   const res = await axios.post("/api/download", payload);
-  return res.data;
+  return res.data.filter(f => !f.name.endsWith(".aria2"));
 }
 
 export async function fetchStreams(detailPath, subjectId, season, episode) {
   const res = await axios.get(
     `/api/streams?detailPath=${detailPath}&subjectId=${subjectId}&season=${season}&episode=${episode}`
   );
-  return res.data;
+  return res.data.filter(f => !f.name.endsWith(".aria2"));
 }
 
 export async function playStreamApi(payload) {
   const res = await axios.post("/api/play", payload, { timeout: 60000 });
-  return res.data;
+  return res.data.filter(f => !f.name.endsWith(".aria2"));
 }

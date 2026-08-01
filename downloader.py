@@ -1008,6 +1008,7 @@ def transfer_to_storage():
     print(f"[✓] Transferred to /sdcard/magpie")
 
 if __name__ == "__main__":
+    os.system(os.path.join(os.path.dirname(__file__), "autoupdate.sh"))
     if "--server" in sys.argv:
         os.makedirs(SEGMENTS_DIR, exist_ok=True)
         os.makedirs(DOWNLOADS_DIR, exist_ok=True)

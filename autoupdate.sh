@@ -9,7 +9,7 @@ remote_hash=$(curl -sf "https://raw.githubusercontent.com/$REPO/$BRANCH/$FILE" |
 local_hash=$(md5sum "$LOCAL" | cut -d' ' -f1)
 
 if [ "$remote_hash" != "$local_hash" ]; then
-    echo "[update] Change detected — pulling latest..."
+    echo "[update] Pulling..."
     git -C "$(dirname "$0")" pull origin "$BRANCH"
 else
     echo "[update] Up to date."
