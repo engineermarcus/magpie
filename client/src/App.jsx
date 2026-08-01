@@ -181,8 +181,8 @@ function DetailModal({ item, onClose, onPlay, onDownload }) {
             {item.overview && <p className="detail-modal__overview">{item.overview}</p>}
             {isTV && (
               <div className="detail-modal__episode-row">
-                <div className="detail-modal__field"><label>Season</label><input type="number" min={1} value={season} onChange={(e) => setSeason(parseInt(e.target.value) || 1)} /></div>
-                <div className="detail-modal__field"><label>Episode</label><input type="number" min={1} value={episode} onChange={(e) => setEpisode(parseInt(e.target.value) || 1)} /></div>
+                <div className="detail-modal__field"><label>Season</label><input type="number" min={1} value={season} onFocus={() => setSeason("")} onChange={(e) => setSeason(parseInt(e.target.value) || 1)} /></div>
+                <div className="detail-modal__field"><label>Episode</label><input type="number" min={1} value={episode} onFocus={() => setEpisode("")} onChange={(e) => setEpisode(parseInt(e.target.value) || 1)} /></div>
               </div>
             )}
             <div className="detail-modal__actions">
