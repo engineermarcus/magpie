@@ -10,7 +10,7 @@ from crop import build_filter
 SEGMENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../segments"))
 
 _UA  = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/147.0.0.0 Safari/537.36"
-_ORG = "https://123movienow.cc"
+_ORG = "https://h5-api.aoneroom.com"
 
 
 def _headers_arg(referer):

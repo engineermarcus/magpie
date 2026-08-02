@@ -14,10 +14,6 @@ from playwright.async_api import async_playwright
 
 # ── Shared HTTP client with connection pool ──────────────────────────────────
 import httpx as _httpx
-_http_client = _httpx.AsyncClient(
-    timeout=20,
-    limits=_httpx.Limits(max_connections=50, max_keepalive_connections=20),
-)
 
 # ── Search cache ─────────────────────────────────────────────────────────────
 import time as _time
@@ -215,7 +211,8 @@ async def search_movie(title: str) -> list:
     payload = {"keyword": title, "page": 1, "perPage": 10, "subjectType": 0}
     url = "https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search"
     print(f"[→] Searching: {url}?keyword={quote_plus(title)}")
-    r = await _http_client.post(url, json=payload, headers=headers)
+    async with _httpx.AsyncClient(timeout=20) as _c:
+        r = await _c.post(url, json=payload, headers=headers)
     if r.status_code != 200:
         print(f"[✗] Search failed: HTTP {r.status_code} — {r.text[:200]}")
         return []
@@ -283,7 +280,8 @@ async def get_stream_url(player_url: str) -> dict:
            f"?subjectId={subject_id}&se={season}&ep={episode}"
            f"&detailPath={detail_path}&streamSignType=1")
     print(f"[→] Fetching streams: subjectId={subject_id} S{season}E{episode}")
-    r = await _http_client.get(url, headers=headers)
+    async with _httpx.AsyncClient(timeout=20) as _c:
+        r = await _c.get(url, headers=headers)
     if r.status_code != 200:
         print(f"[✗] Play API failed: HTTP {r.status_code}")
         return {}
@@ -834,14 +832,13 @@ def serve_any(rel):
     except Exception:
         return jsonify({"error": "not found"}), 404
 
-# Persistent event loop for Flask route handlers
-# asyncio.run() creates/destroys a loop per call — bad under load
-_loop = asyncio.new_event_loop()
-_loop_lock = threading.Lock()
-
 def run_async(coro):
-    with _loop_lock:
-        return _loop.run_until_complete(coro)
+    # Each Flask thread gets its own event loop — no global lock, no blocking
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
 
 @app.route("/api/search", methods=["GET"])
 def api_search():
@@ -979,7 +976,7 @@ def api_play():
         referer = None
         use_crop = True
     else:
-        # Stream directly from CDN — fastest path, no wait
+        # Stream directly from CDN through FFmpeg pipeline
         streams = run_async(fetch_streams_direct(detail_path, subject_id, season, episode))
         if not streams:
             return jsonify({"error": "No streams found"}), 404

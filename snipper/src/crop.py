@@ -5,60 +5,25 @@ from detect import detect_crop
 
 def build_filter(crop, target_width, target_height):
     """
-    Build FFmpeg filter chain that handles all boxing cases:
-    - Letterbox (bars top/bottom) → scale to fill width, crop height
-    - Pillarbox (bars left/right) → scale to fill height, crop width
-    - Windowbox (bars all sides)  → cropdetect removes all, then scale
-    - Already fits               → just scale
+    Remove black bars detected by cropdetect, then scale to fill target dimensions.
+    Uses scale2ref with force_original_aspect_ratio=increase + crop to fill without padding.
     """
     cw = crop["w"]
     ch = crop["h"]
     cx = crop["x"]
     cy = crop["y"]
 
-    crop_aspect  = cw / ch
-    target_aspect = target_width / target_height
+    tw = target_width  if target_width  % 2 == 0 else target_width  - 1
+    th = target_height if target_height % 2 == 0 else target_height - 1
 
-    if crop_aspect > target_aspect:
-        # Video is wider than screen → scale to fill width, trim top/bottom
-        scale_w = target_width
-        scale_h = int(target_width / crop_aspect)
-        scale_h = scale_h if scale_h % 2 == 0 else scale_h - 1
-        crop_y  = max(0, (scale_h - target_height) // 2)
-        if scale_h >= target_height:
-            filters = [
-                f"crop={cw}:{ch}:{cx}:{cy}",
-                f"scale={scale_w}:{scale_h}:flags=lanczos",
-                f"crop={target_width}:{target_height}:0:{crop_y}",
-            ]
-        else:
-            # scaled height is less than target — pad vertically
-            pad_y = (target_height - scale_h) // 2
-            filters = [
-                f"crop={cw}:{ch}:{cx}:{cy}",
-                f"scale={scale_w}:{scale_h}:flags=lanczos",
-                f"pad={target_width}:{target_height}:0:{pad_y}:black",
-            ]
-    else:
-        # Video is taller than (or same as) screen → scale to fill height, trim sides
-        scale_h = target_height
-        scale_w = int(target_height * crop_aspect)
-        scale_w = scale_w if scale_w % 2 == 0 else scale_w - 1
-        crop_x  = max(0, (scale_w - target_width) // 2)
-        if scale_w >= target_width:
-            filters = [
-                f"crop={cw}:{ch}:{cx}:{cy}",
-                f"scale={scale_w}:{scale_h}:flags=lanczos",
-                f"crop={target_width}:{target_height}:{crop_x}:0",
-            ]
-        else:
-            # scaled width is less than target — pad horizontally
-            pad_x = (target_width - scale_w) // 2
-            filters = [
-                f"crop={cw}:{ch}:{cx}:{cy}",
-                f"scale={scale_w}:{scale_h}:flags=lanczos",
-                f"pad={target_width}:{target_height}:{pad_x}:0:black",
-            ]
+    # 1. Crop bars from source
+    # 2. Scale up to fill target (may overshoot one dimension)
+    # 3. Crop exactly to target — centers automatically
+    filters = [
+        f"crop={cw}:{ch}:{cx}:{cy}",
+        f"scale={tw}:{th}:force_original_aspect_ratio=increase:flags=lanczos",
+        f"crop={tw}:{th}",
+    ]
 
     return ",".join(filters)
 
