@@ -456,7 +456,13 @@ export default function App() {
     showToast(`Finding "${item.title}" on magpie…`, "info");
     const results = await searchMagpie(item.title);
     if (!results?.length) { showToast("Not found on magpie", "error"); return null; }
-    return results[0];
+    const match = results[0];
+    return {
+      detailPath: match.detailPath ?? match.name,
+      subjectId:  match.subjectId  ?? match.id ?? match.name,
+      title:      match.title      ?? item.title,
+      cover:      match.cover      ?? item.cover,
+    };
   };
 
   const playStream = async (item, season = 1, episode = 1) => {

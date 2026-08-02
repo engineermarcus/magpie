@@ -1,4 +1,3 @@
-
 import asyncio
 import httpx
 import sys
@@ -118,7 +117,7 @@ os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
 # ── Player URL template ───────────────────────────────────────────────────────
 PLAYER_BASE = "https://123movienow.cc/spa/videoPlayPage/movies/{slug}?id={id}&type=/movie/detail&detailSe={season}&detailEp={episode}&lang=en"
-PLAY_API    = "https://123movienow.cc/wefeed-h5api-bff/subject/play"
+PLAY_API    = "https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play"
 
 # ── Flag + query parser ───────────────────────────────────────────────────────
 def parse_args(argv: list):
@@ -275,12 +274,12 @@ async def get_stream_url(player_url: str) -> dict:
         "X-Request-Lang": "en",
         "x-vip-restrict": "0",
         "x-source":       "",
-        "Origin":         "https://123movienow.cc",
+        "Origin":         "https://h5-api.aoneroom.com",
         "Referer":        player_url,
         "User-Agent":     "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36",
         "Accept":         "application/json",
     }
-    url = (f"https://123movienow.cc/wefeed-h5api-bff/subject/play"
+    url = (f"https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/play"
            f"?subjectId={subject_id}&se={season}&ep={episode}"
            f"&detailPath={detail_path}&streamSignType=1")
     print(f"[→] Fetching streams: subjectId={subject_id} S{season}E{episode}")

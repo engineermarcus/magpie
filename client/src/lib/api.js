@@ -22,7 +22,7 @@ export const TMDB_ENDPOINTS = {
 
 export async function searchMagpie(q) {
   const res = await axios.get(`/api/search?q=${encodeURIComponent(q)}`);
-  return res.data.filter(f => !f.name.endsWith(".aria2"));
+  return res.data;
 }
 
 export async function searchTMDB(query) {
@@ -32,7 +32,7 @@ export async function searchTMDB(query) {
 
 export async function fetchFiles() {
   const res = await axios.get("/api/files");
-  return res.data.filter(f => !f.name.endsWith(".aria2"));
+  return res.data.filter(f => f.name && !f.name.endsWith(".aria2"));
 }
 
 export async function startDownloadApi(payload) {
