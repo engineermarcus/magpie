@@ -77,7 +77,7 @@ case "$1" in
         ;;
 
     serve)
-        python3 "$SCRIPT_DIR/downloader.py" --server
+        gunicorn -c "$SCRIPT_DIR/gunicorn.conf.py" -b 0.0.0.0:5000 "downloader:app"
         ;;
 
     --download)

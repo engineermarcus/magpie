@@ -13,15 +13,74 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 from urllib.parse import quote_plus
 from playwright.async_api import async_playwright
 
+# ── Shared HTTP client with connection pool ──────────────────────────────────
+import httpx as _httpx
+_http_client = _httpx.AsyncClient(
+    timeout=20,
+    limits=_httpx.Limits(max_connections=50, max_keepalive_connections=20),
+)
+
+# ── Search cache ─────────────────────────────────────────────────────────────
+import time as _time
+_search_cache: dict = {}
+_search_cache_lock = threading.Lock()
+CACHE_TTL = 300  # 5 minutes
+
+def _cache_get(key: str):
+    with _search_cache_lock:
+        entry = _search_cache.get(key)
+        if not entry:
+            return None
+        if _time.time() - entry["ts"] > CACHE_TTL:
+            del _search_cache[key]
+            return None
+        return entry["data"]
+
+def _cache_set(key: str, data):
+    with _search_cache_lock:
+        _search_cache[key] = {"data": data, "ts": _time.time()}
+
 # ── Snipper pipeline ──────────────────────────────────────────────────────────
 _SNIPPER_SRC = os.path.join(os.path.dirname(__file__), "snipper", "src")
 sys.path.insert(0, _SNIPPER_SRC)
 from segment import stream_to_hls, fast_cropdetect
-from queue_worker import get_job, set_job, job_exists
+from queue_worker import get_job, set_job, job_exists, submit_encode, submit_download, queue_position
 from device import resolve_dimensions
 
 SEGMENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "snipper", "segments"))
 WEB_DIR      = os.path.abspath(os.path.join(os.path.dirname(__file__), "snipper", "web"))
+
+# Per-IP download tracking
+_ip_downloads: dict = {}
+_ip_lock = threading.Lock()
+MAX_DOWNLOADS_PER_IP = 3
+
+def _ip_acquire(ip: str) -> bool:
+    with _ip_lock:
+        count = _ip_downloads.get(ip, 0)
+        if count >= MAX_DOWNLOADS_PER_IP:
+            return False
+        _ip_downloads[ip] = count + 1
+        return True
+
+def _ip_release(ip: str):
+    with _ip_lock:
+        count = _ip_downloads.get(ip, 0)
+        _ip_downloads[ip] = max(0, count - 1)
+
+def _ip_count(ip: str) -> int:
+    with _ip_lock:
+        return _ip_downloads.get(ip, 0)
+
+# Per-job locks — prevent race where two requests for same key both pass job_exists check
+_job_start_locks: dict = {}
+_job_start_locks_lock = threading.Lock()
+
+def _get_job_lock(key: str) -> threading.Lock:
+    with _job_start_locks_lock:
+        if key not in _job_start_locks:
+            _job_start_locks[key] = threading.Lock()
+        return _job_start_locks[key]
 
 # ── TVMaze: fetch show metadata + exact episode counts ───────────────────────
 async def tvmaze_info(title: str) -> dict:
@@ -157,8 +216,7 @@ async def search_movie(title: str) -> list:
     payload = {"keyword": title, "page": 1, "perPage": 10, "subjectType": 0}
     url = "https://h5-api.aoneroom.com/wefeed-h5api-bff/subject/search"
     print(f"[→] Searching: {url}?keyword={quote_plus(title)}")
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(url, json=payload, headers=headers)
+    r = await _http_client.post(url, json=payload, headers=headers)
     if r.status_code != 200:
         print(f"[✗] Search failed: HTTP {r.status_code} — {r.text[:200]}")
         return []
@@ -226,8 +284,7 @@ async def get_stream_url(player_url: str) -> dict:
            f"?subjectId={subject_id}&se={season}&ep={episode}"
            f"&detailPath={detail_path}&streamSignType=1")
     print(f"[→] Fetching streams: subjectId={subject_id} S{season}E{episode}")
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.get(url, headers=headers)
+    r = await _http_client.get(url, headers=headers)
     if r.status_code != 200:
         print(f"[✗] Play API failed: HTTP {r.status_code}")
         return {}
@@ -778,16 +835,27 @@ def serve_any(rel):
     except Exception:
         return jsonify({"error": "not found"}), 404
 
+# Persistent event loop for Flask route handlers
+# asyncio.run() creates/destroys a loop per call — bad under load
+_loop = asyncio.new_event_loop()
+_loop_lock = threading.Lock()
+
 def run_async(coro):
-    return asyncio.run(coro)
+    with _loop_lock:
+        return _loop.run_until_complete(coro)
 
 @app.route("/api/search", methods=["GET"])
 def api_search():
     title = request.args.get("q", "").strip()
     if not title:
         return jsonify({"error": "Missing ?q="}), 400
+    cache_key = title.lower()
+    cached = _cache_get(cache_key)
+    if cached:
+        return jsonify(cached)
     items = run_async(search_movie(title))
     out = [{"title": i.get("title") or i.get("name"), "year": (i.get("releaseDate") or "")[:4], "country": i.get("countryName"), "genre": i.get("genre"), "imdb": i.get("imdbRatingValue"), "description": i.get("description"), "hasResource": i.get("hasResource"), "detailPath": i.get("detailPath"), "subjectId": i.get("subjectId"), "cover": (i.get("cover") or {}).get("url")} for i in items]
+    _cache_set(cache_key, out)
     return jsonify(out)
 
 @app.route("/api/streams", methods=["GET"])
@@ -814,6 +882,9 @@ def api_download():
     upload      = bool(body.get("upload", False))
     if not detail_path or not subject_id:
         return jsonify({"error": "Missing detailPath or subjectId"}), 400
+    client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "unknown").split(",")[0].strip()
+    if not _ip_acquire(client_ip):
+        return jsonify({"error": f"Too many active downloads. Max {MAX_DOWNLOADS_PER_IP} per user."}), 429
     streams = run_async(fetch_streams_direct(detail_path, subject_id, season, episode))
     if not streams:
         return jsonify({"error": "No streams found"}), 404
@@ -824,24 +895,30 @@ def api_download():
         safe   = re.sub(r"[^\w-]", "", title.replace(" ", "-"))
         output = os.path.join(DOWNLOADS_DIR, f"{safe}-s{season:02d}e{episode:02d}.mp4")
         def bg():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            _url = best["url"]
-            if _url and not _url.startswith(("http://", "https://")):
-                _url = "https:" + _url if _url.startswith("//") else "https://" + _url
-            loop.run_until_complete(download(_url, output, referer=referer))
-            loop.run_until_complete(upload_to_archive(output, title))
-            loop.close()
-        threading.Thread(target=bg, daemon=True).start()
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                _url = best["url"]
+                if _url and not _url.startswith(("http://", "https://")):
+                    _url = "https:" + _url if _url.startswith("//") else "https://" + _url
+                loop.run_until_complete(download(_url, output, referer=referer))
+                loop.run_until_complete(upload_to_archive(output, title))
+                loop.close()
+            finally:
+                _ip_release(client_ip)
+        submit_download(f"{detail_path}-s{season}e{episode}-upload", bg)
         return jsonify({"status": "downloading+uploading", "resolution": best["resolutions"]})
     safe   = re.sub(r"[^\w-]", "", title.replace(" ", "-"))
     output = os.path.join(DOWNLOADS_DIR, f"{safe}-s{season:02d}e{episode:02d}.mp4")
     def bg():
-        _url = best["url"]
-        if _url and not _url.startswith(("http://", "https://")):
-            _url = "https:" + _url if _url.startswith("//") else "https://" + _url
-        asyncio.run(download(_url, output, referer=referer))
-    threading.Thread(target=bg, daemon=True).start()
+        try:
+            _url = best["url"]
+            if _url and not _url.startswith(("http://", "https://")):
+                _url = "https:" + _url if _url.startswith("//") else "https://" + _url
+            asyncio.run(download(_url, output, referer=referer))
+        finally:
+            _ip_release(client_ip)
+    submit_download(f"{detail_path}-s{season}e{episode}", bg)
     return jsonify({"status": "downloading", "resolution": best["resolutions"], "size_mb": int(best["size"]) // 1048576, "output": output})
 
 @app.route("/api/info", methods=["GET"])
@@ -882,14 +959,15 @@ def api_play():
                         "stream_url": f"/{job_key}/index.m3u8",
                         "needs_rotate": needs_rotate})
 
-    # ── Already running ────────────────────────────────────────────────────────
+    # ── Already running or queued — join it, don't start another ──────────────
     if job_exists(job_key):
-        ready = wait_for_playlist(playlist, timeout=45)
+        ready = wait_for_playlist(playlist, timeout=120)
         if ready:
             return jsonify({"status": "ok",
                             "stream_url": f"/{job_key}/index.m3u8",
                             "needs_rotate": needs_rotate})
-        return jsonify({"error": "Timeout waiting for stream"}), 500
+        job = get_job(job_key)
+        return jsonify({"error": f"Timeout waiting for stream (job status: {job.get('status')})"}), 500
 
     # ── Determine source ───────────────────────────────────────────────────────
     filename   = f"{safe}-s{season:02d}e{episode:02d}.mp4"
@@ -913,11 +991,21 @@ def api_play():
         source   = url
         print(f"[DEBUG] Stream URL → {url}")
         referer  = build_player_url({"detailPath": detail_path, "subjectId": subject_id}, season, episode)
-        use_crop = False  # skip cropdetect on live URL — adds latency
+        use_crop = True
 
-    # ── Launch pipeline ────────────────────────────────────────────────────────
-    set_job(job_key, "starting")
-    os.makedirs(out_dir, exist_ok=True)
+    # ── Launch pipeline (per-key lock prevents duplicate encodes) ────────────
+    _jlock = _get_job_lock(job_key)
+    with _jlock:
+        # re-check inside the lock
+        if os.path.exists(playlist):
+            return jsonify({"status": "ok",
+                            "stream_url": f"/{job_key}/index.m3u8",
+                            "needs_rotate": needs_rotate})
+        if job_exists(job_key):
+            pass  # fall through to wait below
+        else:
+            set_job(job_key, "starting")
+            os.makedirs(out_dir, exist_ok=True)
 
     def run_pipeline():
         crop = None
@@ -934,9 +1022,9 @@ def api_play():
         set_job(job_key, "done" if proc.returncode == 0 else "error",
                 code=proc.returncode)
 
-    threading.Thread(target=run_pipeline, daemon=True).start()
+    submit_encode(job_key, run_pipeline)
 
-    ready = wait_for_playlist(playlist, timeout=45)
+    ready = wait_for_playlist(playlist, timeout=120)
     if not ready:
         return jsonify({"error": "Timeout — FFmpeg did not produce segments"}), 500
 
@@ -945,10 +1033,25 @@ def api_play():
                     "needs_rotate": needs_rotate})
 
 
+@app.route("/api/cache", methods=["GET"])
+def api_cache():
+    with _search_cache_lock:
+        return jsonify({"entries": len(_search_cache), "keys": list(_search_cache.keys())})
+
+@app.route("/api/cache", methods=["DELETE"])
+def api_cache_clear():
+    with _search_cache_lock:
+        _search_cache.clear()
+    return jsonify({"status": "cleared"})
+
 @app.route("/api/jobs", methods=["GET"])
 def api_jobs():
-    from queue_worker import all_jobs
-    return jsonify(all_jobs())
+    from queue_worker import all_jobs, queue_position
+    jobs = all_jobs()
+    for key, job in jobs.items():
+        if job.get("status") == "queued":
+            job["queue_position"] = queue_position(key)
+    return jsonify(jobs)
 
 
 @app.route("/api/files", methods=["GET"])

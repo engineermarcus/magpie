@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 RUN playwright install --with-deps chromium
 COPY package*.json .
 RUN npm install --omit=dev
 COPY . .
 EXPOSE 5000
-CMD ["node", "server.js"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "downloader:app"]

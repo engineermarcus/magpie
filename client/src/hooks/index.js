@@ -17,3 +17,33 @@ export function useToast() {
   };
   return { toast, showToast: show };
 }
+
+export function useJobPoller(jobKey, onDone, onError) {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    if (!jobKey) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const res = await fetch("/api/jobs");
+          const jobs = await res.json();
+          const job = jobs[jobKey] || null;
+          if (!cancelled) setStatus(job);
+          if (job?.status === "done") { onDone?.(); break; }
+          if (job?.status === "error") { onError?.(job.error); break; }
+        } catch (e) {
+          // silently retry
+        }
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    };
+
+    poll();
+    return () => { cancelled = true; };
+  }, [jobKey]);
+
+  return status;
+}

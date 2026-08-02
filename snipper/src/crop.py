@@ -5,29 +5,60 @@ from detect import detect_crop
 
 def build_filter(crop, target_width, target_height):
     """
-    Build FFmpeg filter chain:
-    1. Crop black bars
-    2. Scale up to fill target height
-    3. Zoom crop excess width to fill screen exactly
+    Build FFmpeg filter chain that handles all boxing cases:
+    - Letterbox (bars top/bottom) → scale to fill width, crop height
+    - Pillarbox (bars left/right) → scale to fill height, crop width
+    - Windowbox (bars all sides)  → cropdetect removes all, then scale
+    - Already fits               → just scale
     """
     cw = crop["w"]
     ch = crop["h"]
     cx = crop["x"]
     cy = crop["y"]
 
-    # Scale to fill height
-    scale_factor = target_height / ch
-    scaled_width = int(cw * scale_factor)
-    scaled_height = target_height
+    crop_aspect  = cw / ch
+    target_aspect = target_width / target_height
 
-    # Zoom crop — trim sides equally
-    crop_x = max(0, (scaled_width - target_width) // 2)
-
-    filters = [
-        f"crop={cw}:{ch}:{cx}:{cy}",
-        f"scale={scaled_width}:{scaled_height}:flags=lanczos",
-        f"crop={target_width}:{target_height}:{crop_x}:0"
-    ]
+    if crop_aspect > target_aspect:
+        # Video is wider than screen → scale to fill width, trim top/bottom
+        scale_w = target_width
+        scale_h = int(target_width / crop_aspect)
+        scale_h = scale_h if scale_h % 2 == 0 else scale_h - 1
+        crop_y  = max(0, (scale_h - target_height) // 2)
+        if scale_h >= target_height:
+            filters = [
+                f"crop={cw}:{ch}:{cx}:{cy}",
+                f"scale={scale_w}:{scale_h}:flags=lanczos",
+                f"crop={target_width}:{target_height}:0:{crop_y}",
+            ]
+        else:
+            # scaled height is less than target — pad vertically
+            pad_y = (target_height - scale_h) // 2
+            filters = [
+                f"crop={cw}:{ch}:{cx}:{cy}",
+                f"scale={scale_w}:{scale_h}:flags=lanczos",
+                f"pad={target_width}:{target_height}:0:{pad_y}:black",
+            ]
+    else:
+        # Video is taller than (or same as) screen → scale to fill height, trim sides
+        scale_h = target_height
+        scale_w = int(target_height * crop_aspect)
+        scale_w = scale_w if scale_w % 2 == 0 else scale_w - 1
+        crop_x  = max(0, (scale_w - target_width) // 2)
+        if scale_w >= target_width:
+            filters = [
+                f"crop={cw}:{ch}:{cx}:{cy}",
+                f"scale={scale_w}:{scale_h}:flags=lanczos",
+                f"crop={target_width}:{target_height}:{crop_x}:0",
+            ]
+        else:
+            # scaled width is less than target — pad horizontally
+            pad_x = (target_width - scale_w) // 2
+            filters = [
+                f"crop={cw}:{ch}:{cx}:{cy}",
+                f"scale={scale_w}:{scale_h}:flags=lanczos",
+                f"pad={target_width}:{target_height}:{pad_x}:0:black",
+            ]
 
     return ",".join(filters)
 

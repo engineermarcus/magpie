@@ -33,7 +33,7 @@ else
         set -e
         apt update -y &&
         apt install -y python3 python3-pip ffmpeg aria2 &&
-        pip3 install --break-system-packages playwright &&
+        pip3 install --break-system-packages playwright gunicorn &&
         python3 -m playwright install chromium &&
         python3 -m playwright install-deps chromium &&
         echo "[✓] All done"

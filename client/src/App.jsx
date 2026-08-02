@@ -4,7 +4,8 @@ import {
   TMDB, IMG, TMDB_ENDPOINTS,
   searchMagpie, searchTMDB, fetchFiles, startDownloadApi, fetchStreams,
 } from "./lib/api";
-import { useDebounce, useToast } from "./hooks/index";
+import { useDebounce, useToast, useJobPoller } from "./hooks/index";
+import { pollJob } from "./lib/api";
 
 const CATEGORIES = ["Trending", "Movies", "TV Shows", "Crime", "Drama", "Thriller"];
 
@@ -261,12 +262,29 @@ function VideoPlayer({ player, onClose }) {
     display: "flex", alignItems: "center", justifyContent: "center",
   };
 
+  const jobStatus = useJobPoller(
+    player?.loading ? player?.jobKey : null,
+    null,
+    null
+  );
+
+  const statusLabel = () => {
+    if (!jobStatus) return "Preparing stream…";
+    switch (jobStatus.status) {
+      case "queued":   return `Queue position ${jobStatus.queue_position ?? "…"}`;
+      case "starting": return "Starting encoder…";
+      case "running":  return "Encoding stream…";
+      case "error":    return `Error: ${jobStatus.error || "unknown"}`;
+      default:         return "Preparing stream…";
+    }
+  };
+
   if (player.loading) return (
     <div style={overlayStyle}>
       <button style={closeBtnStyle} onClick={onClose}><Icon.Close /></button>
       <div style={{ textAlign: "center", color: "#fff", fontFamily: "sans-serif" }}>
         <div style={spinnerStyle} />
-        <p style={{ fontSize: 15, opacity: 0.85 }}>Preparing stream…</p>
+        <p style={{ fontSize: 15, opacity: 0.85 }}>{statusLabel()}</p>
         <p style={{ fontSize: 12, opacity: 0.4, marginTop: 6 }}>{player.title}</p>
       </div>
     </div>
@@ -319,7 +337,7 @@ function BottomNav({ active, onChange }) {
   );
 }
 
-function TopNav({ activeTab, onTabChange, query, onQuery }) {
+function TopNav({ activeTab, onTabChange, query, onQuery, history, onHistoryPick, onHistoryRemove }) {
   return (
     <nav className="top-nav">
       <div className="top-nav__logo"><span className="top-nav__logo-icon">🐦</span>MAGPIE</div>
@@ -328,10 +346,20 @@ function TopNav({ activeTab, onTabChange, query, onQuery }) {
           <button key={t} className={`top-nav__tab ${activeTab === t ? "top-nav__tab--active" : ""}`} onClick={() => onTabChange(t)}>{t}</button>
         ))}
       </div>
-      <div className="top-nav__search">
+      <div className="top-nav__search" style={{ position: "relative" }}>
         <Icon.Search />
         <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Search titles…" className="top-nav__search-input" />
         {query && <button className="top-nav__search-clear" onClick={() => onQuery("")}><Icon.Close /></button>}
+        {!query && history?.length > 0 && (
+          <div className="search-history">
+            {history.map((h, i) => (
+              <div key={i} className="search-history__item">
+                <span onClick={() => onHistoryPick(h)}>{h}</span>
+                <button onClick={() => onHistoryRemove(h)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </nav>
   );
@@ -349,6 +377,25 @@ export default function App() {
   const [downloads, setDownloads] = useState([]);
   const [downloading, setDownloading] = useState({});
   const [myList, setMyList] = useState(() => { try { return JSON.parse(localStorage.getItem("magpie_mylist") || "[]"); } catch { return []; } });
+  const [searchHistory, setSearchHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("magpie_history") || "[]"); } catch { return []; } });
+
+  const addToHistory = (q) => {
+    if (!q.trim()) return;
+    setSearchHistory(prev => {
+      const filtered = prev.filter(h => h.toLowerCase() !== q.toLowerCase());
+      const next = [q, ...filtered].slice(0, 10);
+      localStorage.setItem("magpie_history", JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const removeFromHistory = (q) => {
+    setSearchHistory(prev => {
+      const next = prev.filter(h => h !== q);
+      localStorage.setItem("magpie_history", JSON.stringify(next));
+      return next;
+    });
+  };
   const { toast, showToast } = useToast();
   const debouncedQuery = useDebounce(query, 450);
   const pollRef = useRef(null);
@@ -373,6 +420,7 @@ export default function App() {
 
   useEffect(() => {
     if (!debouncedQuery.trim()) { setSearchResults([]); return; }
+    addToHistory(debouncedQuery);
     searchTMDB(debouncedQuery)
       .then((items) => setSearchResults(
         items
@@ -413,7 +461,9 @@ export default function App() {
 
   const playStream = async (item, season = 1, episode = 1) => {
     const title = item.title || item.name;
-    setPlayer({ loading: true, title, season, episode });
+    const safe = title.replace(/[^\w-]/g, '').replace(/ /g, '-');
+    const jobKey = `${safe}-s${String(season).padStart(2,'0')}e${String(episode).padStart(2,'0')}_`;
+    setPlayer({ loading: true, title, season, episode, jobKey });
     try {
       const resolved = await resolveItem(item);
       if (!resolved) { setPlayer(null); return; }
@@ -500,7 +550,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopNav activeTab={activeTab} onTabChange={(t) => { setActiveTab(t); setQuery(""); setMobileTab("home"); }} query={query} onQuery={setQuery} />
+      <TopNav activeTab={activeTab} onTabChange={(t) => { setActiveTab(t); setQuery(""); setMobileTab("home"); }} query={query} onQuery={setQuery} history={searchHistory} onHistoryPick={(h) => setQuery(h)} onHistoryRemove={removeFromHistory} />
       <main className="main-content">{renderContent()}</main>
       <BottomNav active={mobileTab} onChange={handleMobileTab} />
       {selected && <DetailModal item={selected} onClose={() => setSelected(null)} onPlay={playStream} onDownload={startDownload} />}

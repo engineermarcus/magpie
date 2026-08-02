@@ -37,17 +37,23 @@ export async function fetchFiles() {
 
 export async function startDownloadApi(payload) {
   const res = await axios.post("/api/download", payload);
-  return res.data.filter(f => !f.name.endsWith(".aria2"));
+  return res.data;
 }
 
 export async function fetchStreams(detailPath, subjectId, season, episode) {
   const res = await axios.get(
     `/api/streams?detailPath=${detailPath}&subjectId=${subjectId}&season=${season}&episode=${episode}`
   );
-  return res.data.filter(f => !f.name.endsWith(".aria2"));
+  return res.data;
 }
 
 export async function playStreamApi(payload) {
   const res = await axios.post("/api/play", payload, { timeout: 60000 });
-  return res.data.filter(f => !f.name.endsWith(".aria2"));
+  return res.data;
+}
+
+export async function pollJob(key) {
+  const res = await axios.get("/api/jobs");
+  const jobs = res.data;
+  return jobs[key] || null;
 }

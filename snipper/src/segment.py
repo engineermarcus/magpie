@@ -21,7 +21,7 @@ def _headers_arg(referer):
     )
 
 
-def fast_cropdetect(source, referer=None, sample_duration=10):
+def fast_cropdetect(source, referer=None, sample_duration=30):
     """
     Sample first N seconds of source for black bars.
     Returns crop dict or None.  Skipped for URL sources by default — callers decide.
