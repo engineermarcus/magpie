@@ -1,16 +1,21 @@
 #!/bin/bash
-
 REPO="engineermarcus/magpie"
-FILE="downloader.py"
-LOCAL="$(dirname "$0")/$FILE"
 BRANCH="main"
+DIR="$(dirname "$0")"
 
-remote_hash=$(curl -sf "https://raw.githubusercontent.com/$REPO/$BRANCH/$FILE" | md5sum | cut -d' ' -f1)
-local_hash=$(md5sum "$LOCAL" | cut -d' ' -f1)
+echo "[update] Checking for updates..."
 
-if [ "$remote_hash" != "$local_hash" ]; then
-    echo "[update] Pulling latest update..."
-    git -C "$(dirname "$0")" pull origin "$BRANCH"
-else
+# Fetch remote without merging
+git -C "$DIR" fetch origin "$BRANCH" --quiet
+
+LOCAL=$(git -C "$DIR" rev-parse HEAD)
+REMOTE=$(git -C "$DIR" rev-parse origin/$BRANCH)
+
+if [ "$LOCAL" = "$REMOTE" ]; then
     echo "[update] Up to date."
+else
+    echo "[update] Pulling latest changes..."
+    git -C "$DIR" merge --ff-only origin/$BRANCH \
+        && echo "[update] Done." \
+        || echo "[update] Fast-forward failed — you may have local changes. Run 'git pull' manually."
 fi
